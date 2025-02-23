@@ -10,14 +10,13 @@ from datetime import datetime
 
 app = Flask(__name__, template_folder='template')
 
-# Gunakan direktori sementara untuk Vercel
+# Gunakan direktori sementara untuk Vercel atau lingkungan lain yang read-only
 TEMP_DIR = tempfile.gettempdir()
 
 # Batas maksimum panjang prompt (dalam karakter)
 MAX_PROMPT_LENGTH = 1500
 DATABASE = os.path.join(TEMP_DIR, 'novels.db')  # Database disimpan di /tmp/
 
-# Inisialisasi database dan buat tabel jika belum ada
 def init_db():
     conn = sqlite3.connect(DATABASE)
     c = conn.cursor()
@@ -37,10 +36,15 @@ def init_db():
     conn.commit()
     conn.close()
 
-# Pastikan database diinisialisasi sebelum request pertama
-@app.before_first_request
-def initialize():
-    init_db()
+# Pastikan database diinisialisasi sebelum setiap request (hanya sekali)
+db_initialized = False
+
+@app.before_request
+def initialize_db_once():
+    global db_initialized
+    if not db_initialized:
+        init_db()
+        db_initialized = True
 
 def delete_old_chapters():
     conn = sqlite3.connect(DATABASE)
