@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Novel Generator</title>
+  <style>
+    /* Reset sederhana */
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #f2f2f2;
+      line-height: 1.6;
+      color: #333;
+      padding: 20px;
+    }
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      background: #fff;
+      padding: 20px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+      border-radius: 4px;
+    }
+    h1 {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    form {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 15px;
+    }
+    form > div {
+      flex: 1 0 100%;
+    }
+    label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: bold;
+    }
+    input[type="text"],
+    textarea,
+    select {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+    textarea {
+      resize: vertical;
+      min-height: 80px;
+    }
+    button {
+      background-color: #007BFF;
+      color: #fff;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+    }
+    button:hover {
+      background-color: #0056b3;
+    }
+    .result {
+      margin-top: 20px;
+      padding: 15px;
+      background: #e9ecef;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      white-space: pre-wrap;
+      max-height: 300px; /* Batas tinggi */
+      overflow-y: auto; /* Scroll vertical jika konten melebihi */
+    }
+    .download-links {
+      margin-top: 15px;
+    }
+    .download-links a {
+      display: inline-block;
+      margin-right: 10px;
+      padding: 8px 15px;
+      background: #28a745;
+      color: #fff;
+      text-decoration: none;
+      border-radius: 4px;
+    }
+    .download-links a:hover {
+      background: #218838;
+    }
+    /* Responsive two-column layout for screens above 600px */
+    @media (min-width: 600px) {
+      form > div.half {
+        flex: 1 0 48%;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Novel Generator</h1>
+    <form id="novelForm">
+      <div class="half">
+        <label for="novel_title">Judul Novel:</label>
+        <input type="text" id="novel_title" name="novel_title" placeholder="Kisah Pohon Misterius">
+      </div>
+      <div class="half">
+        <label for="chapter">Chapter (Prolog / Bab X):</label>
+        <input type="text" id="chapter" name="chapter" placeholder="Prolog atau Bab 1">
+      </div>
+      <div class="half">
+        <label for="chapter_title">Judul Bab:</label>
+        <input type="text" id="chapter_title" name="chapter_title" placeholder="Awal Keanehan">
+      </div>
+      <div class="half">
+        <label for="character_name">Nama Tokoh Utama:</label>
+        <input type="text" id="character_name" name="character_name" placeholder="Raka">
+      </div>
+      <div class="half">
+        <label for="genre">Genre:</label>
+        <input type="text" id="genre" name="genre" placeholder="Mystery">
+      </div>
+      <div class="half">
+        <label for="world_setting">Setting Dunia:</label>
+        <textarea id="world_setting" name="world_setting" placeholder="Hutan angker di pinggiran kota yang dipenuhi kabut tebal dan suara-suara aneh"></textarea>
+      </div>
+      <div class="half">
+        <label for="conflict">Konflik:</label>
+        <textarea id="conflict" name="conflict" placeholder="Terungkapnya rahasia kelam di balik pohon raksasa misterius"></textarea>
+      </div>
+      <div class="half">
+        <label for="special_power">Kekuatan Khusus:</label>
+        <input type="text" id="special_power" name="special_power" placeholder="Kemampuan merasakan aura alam tak kasat mata">
+      </div>
+      <div class="half">
+        <label for="plot_twist">Plot Twist:</label>
+        <textarea id="plot_twist" name="plot_twist" placeholder="Pohon itu adalah saksi bisu dari peristiwa tragis yang mengubah nasib banyak orang"></textarea>
+      </div>
+      <div class="half">
+        <label for="writing_style">Gaya Penulisan:</label>
+        <input type="text" id="writing_style" name="writing_style" placeholder="Misterius, penuh teka-teki, dan mengundang rasa penasaran">
+      </div>
+      <div class="half">
+        <label for="narrative_type">Jenis Narasi:</label>
+        <select id="narrative_type" name="narrative_type">
+          <option value="linear">Linear</option>
+          <option value="branching">Bercabang</option>
+        </select>
+      </div>
+      <div class="half">
+        <label for="chapter_instructions">Instruksi Tambahan:</label>
+        <textarea id="chapter_instructions" name="chapter_instructions" placeholder="Sertakan dialog antar karakter dan narasi yang hidup."></textarea>
+      </div>
+      <div style="flex: 1 0 100%; text-align: center;">
+        <button type="submit">Generate Novel Chapter</button>
+      </div>
+    </form>
+    <div class="result" id="result">
+      <h2>Novel Chapter Generated:</h2>
+      <!-- Hasil cerita akan tampil di sini dengan scroll vertical jika konten panjang -->
+    </div>
+    <div class="download-links" id="downloadLinks">
+      <!-- Download links akan tampil di sini -->
+    </div>
+  </div>
+
+  <script>
+    document.getElementById("novelForm").addEventListener("submit", function(e) {
+      e.preventDefault();
+      const formData = {
+        novel_title: document.getElementById("novel_title").value,
+        chapter: document.getElementById("chapter").value,
+        chapter_title: document.getElementById("chapter_title").value,
+        character_name: document.getElementById("character_name").value,
+        genre: document.getElementById("genre").value,
+        world_setting: document.getElementById("world_setting").value,
+        conflict: document.getElementById("conflict").value,
+        special_power: document.getElementById("special_power").value,
+        plot_twist: document.getElementById("plot_twist").value,
+        writing_style: document.getElementById("writing_style").value,
+        narrative_type: document.getElementById("narrative_type").value,
+        chapter_instructions: document.getElementById("chapter_instructions").value
+      };
+
+      fetch("/generate_novel", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(formData)
+      })
+      .then(response => response.json())
+      .then(data => {
+        if (data.status === "success") {
+          let resultHTML = `<h2>Novel Chapter Generated:</h2><pre>${data.novel}</pre>`;
+          let downloadHTML = `<h3>Download Files:</h3>`;
+          if(data.json_filepath) {
+            downloadHTML += `<a href="/download/${data.json_filepath}" download>Download JSON</a>`;
+          }
+          if(data.doc_filepath) {
+            downloadHTML += `<a href="/download/${data.doc_filepath}" download>Download DOC</a>`;
+          }
+          document.getElementById("result").innerHTML = resultHTML;
+          document.getElementById("downloadLinks").innerHTML = downloadHTML;
+        } else {
+          document.getElementById("result").innerHTML = `<h2>Error:</h2><pre>${data.message}</pre>`;
+          document.getElementById("downloadLinks").innerHTML = "";
+        }
+      })
+      .catch(error => {
+        document.getElementById("result").innerHTML = `<h2>Error:</h2><pre>${error}</pre>`;
+        document.getElementById("downloadLinks").innerHTML = "";
+      });
+    });
+  </script>
+</body>
+</html>
