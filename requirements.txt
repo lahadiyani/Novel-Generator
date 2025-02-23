@@ -1,2 +1,4 @@
+Flask
 requests
-pydocx
+python-docx
+urllib3
