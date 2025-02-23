@@ -277,12 +277,12 @@ def generate_novel_endpoint():
 @app.route('/download/<path:filename>', methods=['GET'])
 def download_file(filename):
     try:
-        # filename adalah relative path, misalnya "novel_PohonMisterius/prolog - PohonMisterius.doc"
+        # Di Vercel, direktori /tmp/ adalah satu-satunya tempat yang bisa ditulisi
         absolute_path = os.path.join(TEMP_DIR, filename)
         if os.path.exists(absolute_path):
             return send_file(absolute_path, as_attachment=True)
         else:
-            return f"File tidak ditemukan: {absolute_path}", 404
+            return f"File tidak ditemukan: {absolute_path}. File mungkin sudah terhapus karena sifat ephemeral Vercel. Silahkan generate ulang file tersebut.", 404
     except Exception as e:
         return str(e), 404
 
