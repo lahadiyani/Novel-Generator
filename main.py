@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, send_from_directory, render_template
+from flask import Flask, request, jsonify, send_from_directory, render_template, send_file
 import urllib.parse
 import requests
 import os
@@ -281,7 +281,7 @@ def download_file(filename):
         # Pisahkan directory dan nama file untuk send_from_directory
         directory = os.path.join(TEMP_DIR, os.path.dirname(filename))
         file_name = os.path.basename(filename)
-        return send_from_directory(directory, file_name, as_attachment=True)
+        return send_file(directory, file_name, as_attachment=True)
     except Exception as e:
         return str(e), 404
 
