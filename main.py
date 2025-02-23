@@ -10,10 +10,12 @@ from datetime import datetime
 
 app = Flask(__name__, template_folder='template')
 
-# Gunakan direktori sementara untuk penyimpanan
+# Gunakan direktori sementara untuk Vercel atau lingkungan lain yang read-only
 TEMP_DIR = tempfile.gettempdir()
+
+# Batas maksimum panjang prompt (dalam karakter)
 MAX_PROMPT_LENGTH = 1500
-DATABASE = os.path.join(TEMP_DIR, 'novels.db')
+DATABASE = os.path.join(TEMP_DIR, 'novels.db')  # Database disimpan di /tmp/
 
 def init_db():
     conn = sqlite3.connect(DATABASE)
@@ -34,13 +36,31 @@ def init_db():
     conn.commit()
     conn.close()
 
+# Pastikan database diinisialisasi sebelum setiap request (hanya sekali)
 db_initialized = False
+
 @app.before_request
 def initialize_db_once():
     global db_initialized
     if not db_initialized:
         init_db()
         db_initialized = True
+
+def delete_old_chapters():
+    conn = sqlite3.connect(DATABASE)
+    c = conn.cursor()
+    c.execute("SELECT id, doc_filepath FROM chapters WHERE created_at < datetime('now', '-7 days')")
+    rows = c.fetchall()
+    for row in rows:
+        _, doc_filepath = row
+        if doc_filepath and os.path.exists(doc_filepath):
+            try:
+                os.remove(doc_filepath)
+            except Exception as e:
+                print("Gagal menghapus file:", doc_filepath, e)
+    c.execute("DELETE FROM chapters WHERE created_at < datetime('now', '-7 days')")
+    conn.commit()
+    conn.close()
 
 def sanitize_title(title):
     return re.sub(r'\W+', '', title.replace(" ", "_"))
@@ -49,8 +69,9 @@ def get_chapter_order(chapter_input):
     chapter_lower = chapter_input.lower().strip()
     if chapter_lower == "prolog":
         return 0
-    match = re.search(r'bab\s*(\d+)', chapter_lower)
-    return int(match.group(1)) if match else None
+    else:
+        match = re.search(r'bab\s*(\d+)', chapter_lower)
+        return int(match.group(1)) if match else None
 
 def get_context_from_db(novel_title, new_order):
     conn = sqlite3.connect(DATABASE)
@@ -62,14 +83,38 @@ def get_context_from_db(novel_title, new_order):
     """, (novel_title, new_order))
     rows = c.fetchall()
     conn.close()
-    return "\n".join(f"{chapter}: {content}" for chapter, content in rows)
+    context = ""
+    for chapter, content in rows:
+        context += f"{chapter} content: {content}\n"
+    return context
+
+def add_markdown_line_to_paragraph(paragraph, text):
+    parts = re.split(r'(\*\*.*?\*\*)', text)
+    for part in parts:
+        if part.startswith("**") and part.endswith("**"):
+            run = paragraph.add_run(part[2:-2])
+            run.bold = True
+        else:
+            paragraph.add_run(part)
 
 def add_markdown_to_doc(doc, markdown_text):
-    for line in markdown_text.splitlines():
-        if not line.strip():
+    lines = markdown_text.splitlines()
+    for line in lines:
+        line = line.strip()
+        if not line:
             continue
-        p = doc.add_paragraph()
-        p.add_run(line)
+        if line.startswith("#"):
+            level = len(line) - len(line.lstrip("#"))
+            text = line.lstrip("#").strip()
+            level = level if level <= 4 else 4
+            p = doc.add_heading("", level=level)
+            add_markdown_line_to_paragraph(p, text)
+        elif line.startswith("- "):
+            p = doc.add_paragraph(style='List Bullet')
+            add_markdown_line_to_paragraph(p, line[2:])
+        else:
+            p = doc.add_paragraph()
+            add_markdown_line_to_paragraph(p, line)
 
 @app.route('/')
 def index():
@@ -78,76 +123,93 @@ def index():
 @app.route('/generate_novel', methods=['POST'])
 def generate_novel_endpoint():
     try:
+        delete_old_chapters()
         data = request.json
 
-        chapter_input = data.get("chapter", "Prolog")
-        novel_title = data.get("novel_title", "Novel Tanpa Judul")
-        genre = data.get("genre", "Fantasy")
-        world_setting = data.get("world_setting", "Dunia paralel penuh keajaiban")
-        conflict = data.get("conflict", "Menyelamatkan dunia dari ancaman gelap")
-        special_power = data.get("special_power", "Mengendalikan elemen")
-        plot_twist = data.get("plot_twist", "Musuh utama ternyata saudara kembarnya")
-        writing_style = data.get("writing_style", "Misterius dan dramatis")
-        narrative_type = data.get("narrative_type", "linear")
-        chapter_title = data.get("chapter_title", "")
-        chapter_instructions = data.get("chapter_instructions", "Ceritakan bab ini dengan detail.")
+        chapter_input   = data.get("chapter", "Prolog")
+        character_name  = data.get("character_name", "Alex")
+        genre           = data.get("genre", "Fantasy")
+        world_setting   = data.get("world_setting", "Dunia paralel penuh keajaiban")
+        conflict        = data.get("conflict", "Menyelamatkan dunia dari ancaman gelap")
+        special_power   = data.get("special_power", "Mengendalikan elemen")
+        plot_twist      = data.get("plot_twist", "Musuh utama ternyata saudara kembarnya")
+        writing_style   = data.get("writing_style", "Misterius dan dramatis")
+        narrative_type  = data.get("narrative_type", "linear")
+        novel_title     = data.get("novel_title", "Novel Tanpa Judul")
+        chapter_title   = data.get("chapter_title", "")
+        chapter_instructions = data.get("chapter_instructions", 
+            "Ceritakan bab ini dengan detail, sertakan dialog antar karakter dan narasi yang hidup.")
 
         new_order = get_chapter_order(chapter_input)
         if new_order is None:
-            return jsonify({"status": "error", "message": "Format chapter tidak valid."}), 400
+            return jsonify({"status": "error", "message": "Format chapter tidak valid. Gunakan 'Prolog' atau 'Bab <nomor>'."}), 400
+
+        folder_name = os.path.join(TEMP_DIR, f"novel_{sanitize_title(novel_title)}")
+        if not os.path.exists(folder_name):
+            os.makedirs(folder_name)
 
         context_prompt = get_context_from_db(novel_title, new_order) if narrative_type.lower() == "linear" else ""
 
-        chapter_prompt = f"""
-        === {chapter_input.upper()} ===
-        Tuliskan bab ini sebagai kelanjutan cerita yang naratif.
-        Gunakan informasi berikut:
-        Genre: {genre}
-        Dunia: {world_setting}
-        Tokoh Utama: memiliki kekuatan {special_power}
-        Konflik: {conflict}
-        Plot Twist: {plot_twist}
-        Gaya: {writing_style}
-        
-        {chapter_instructions}
-        """
-        
-        # Hapus template_info dari prompt
+        if chapter_input.lower() == "prolog":
+            chapter_prompt = f"""
+            === {chapter_input.upper()} ===
+            Tuliskan prolog dengan pengenalan dunia dan karakter secara mendalam.
+            Gunakan deskripsi, dialog, dan narasi untuk memperkenalkan latar cerita.
+            Informasi tambahan:
+            - Genre: {genre}
+            - Dunia: {world_setting}
+            - Tokoh Utama: {character_name} dengan kekuatan {special_power}
+            - Konflik: {conflict}
+            - Plot Twist: {plot_twist}
+            - Gaya: {writing_style}
+            
+            {chapter_instructions}
+            """
+        else:
+            chapter_prompt = f"""
+            === {chapter_input.upper()} ===
+            Tuliskan bab ini sebagai kelanjutan cerita yang naratif, dengan dialog antar karakter, deskripsi mendalam, dan alur cerita yang koheren.
+            Jangan hanya menampilkan template, tetapi kembangkan cerita menjadi narasi yang hidup.
+            Gunakan informasi berikut sebagai dasar:
+            Genre: {genre}
+            Dunia: {world_setting}
+            Tokoh Utama: {character_name} dengan kekuatan {special_power}
+            Konflik: {conflict}
+            Plot Twist: {plot_twist}
+            Gaya: {writing_style}
+            
+            {chapter_instructions}
+            """
+
+        # Hapus bagian template_info dari full_prompt agar output tidak mengandungnya
         full_prompt = chapter_prompt + "\n" + context_prompt
 
         if len(full_prompt) > MAX_PROMPT_LENGTH:
             required_prompt = chapter_prompt + "\n"
             allowed_context_length = MAX_PROMPT_LENGTH - len(required_prompt)
+            allowed_context_length = allowed_context_length if allowed_context_length > 0 else 0
             trimmed_context = context_prompt[-allowed_context_length:] if allowed_context_length > 0 else ""
             full_prompt = required_prompt + trimmed_context
 
         encoded_prompt = urllib.parse.quote(full_prompt)
         pollinations_url = f"https://text.pollinations.ai/openai/{encoded_prompt}"
         response = requests.get(pollinations_url)
-        
         if response.status_code == 200:
             generated_story = response.text
 
             doc = Document()
             doc.add_heading(chapter_title if chapter_title else chapter_input, level=1)
             add_markdown_to_doc(doc, generated_story)
-            
-            relative_folder = f"novel_{sanitize_title(novel_title)}"
-            folder_name = os.path.join(TEMP_DIR, relative_folder)
-            os.makedirs(folder_name, exist_ok=True)
-
             doc_filename = "prolog.doc" if chapter_input.lower() == "prolog" else f"bab{new_order}.doc"
             doc_filepath = os.path.join(folder_name, doc_filename)
             doc.save(doc_filepath)
-            
-            relative_doc_path = os.path.join(relative_folder, doc_filename)
 
             conn = sqlite3.connect(DATABASE)
             c = conn.cursor()
             c.execute("""
                 INSERT INTO chapters (novel_title, chapter, chapter_title, chapter_order, narrative_type, content, doc_filepath)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (novel_title, chapter_input, chapter_title, new_order, narrative_type, generated_story, relative_doc_path))
+            """, (novel_title, chapter_input, chapter_title, new_order, narrative_type, generated_story, doc_filepath))
             conn.commit()
             conn.close()
 
@@ -156,7 +218,7 @@ def generate_novel_endpoint():
                 "novel_title": novel_title,
                 "chapter": chapter_input,
                 "order": new_order,
-                "doc_filepath": relative_doc_path,
+                "doc_filepath": doc_filepath,
                 "novel": generated_story
             })
         else:
