@@ -120,9 +120,67 @@
         <label for="character_name">Nama Tokoh Utama:</label>
         <input type="text" id="character_name" name="character_name" placeholder="Raka">
       </div>
+      <!-- Input untuk karakter tambahan -->
+      <div class="half">
+        <label for="antagonist">Antagonis:</label>
+        <input type="text" id="antagonist" name="antagonist" placeholder="rian">
+      </div>
+      <div class="half">
+        <label for="antagonist_background">Latar Belakang Antagonis:</label>
+        <textarea id="antagonist_background" name="antagonist_background" rows="2" placeholder="sikopat"></textarea>
+      </div>
+      <div class="half">
+        <label for="supporting_character">Karakter Pendamping:</label>
+        <input type="text" id="supporting_character" name="supporting_character" placeholder="Rio">
+      </div>
+      <div class="half">
+        <label for="supporting_background">Latar Belakang Pendamping:</label>
+        <textarea id="supporting_background" name="supporting_background" rows="2" placeholder="Teman masa kecil"></textarea>
+      </div>
+      <div class="half">
+        <label for="tritagonist">Tritagonis:</label>
+        <input type="text" id="tritagonist" name="tritagonist" placeholder="nela">
+      </div>
+      <div class="half">
+        <label for="tritagonist_background">Latar Belakang Tritagonis:</label>
+        <textarea id="tritagonist_background" name="tritagonist_background" rows="2" placeholder="teman masa kecil"></textarea>
+      </div>
+      <div class="half">
+        <label for="mentor">Mentor:</label>
+        <input type="text" id="mentor" name="mentor" placeholder="Lify">
+      </div>
+      <div class="half">
+        <label for="mentor_background">Latar Belakang Mentor:</label>
+        <textarea id="mentor_background" name="mentor_background" rows="2" placeholder="Ibu Raka"></textarea>
+      </div>
+      <div class="half">
+        <label for="foil">Foil:</label>
+        <input type="text" id="foil" name="foil" placeholder="Nala">
+      </div>
+      <div class="half">
+        <label for="foil_background">Latar Belakang Foil:</label>
+        <textarea id="foil_background" name="foil_background" rows="2" placeholder="Rival Raka"></textarea>
+      </div>
+      <div class="half">
+        <label for="love_interest">Love Interest:</label>
+        <input type="text" id="love_interest" name="love_interest" placeholder="maya">
+      </div>
+      <div class="half">
+        <label for="love_interest_background">Latar Belakang Love Interest:</label>
+        <textarea id="love_interest_background" name="love_interest_background" rows="2" placeholder="wanita tercantik disekolah"></textarea>
+      </div>
+      <div class="half">
+        <label for="dynamic_character">Karakter Dinamis:</label>
+        <input type="text" id="dynamic_character" name="dynamic_character" placeholder="Jaya">
+      </div>
+      <div class="half">
+        <label for="dynamic_character_background">Latar Belakang Karakter Dinamis:</label>
+        <textarea id="dynamic_character_background" name="dynamic_character_background" rows="2" placeholder="Master Beladiri"></textarea>
+      </div>
+      <!-- Field standar lainnya -->
       <div class="half">
         <label for="genre">Genre:</label>
-        <input type="text" id="genre" name="genre" placeholder="Mystery">
+        <input type="text" id="genre" name="genre" placeholder="Mystery, Comedy">
       </div>
       <div class="half">
         <label for="world_setting">Setting Dunia:</label>
@@ -152,8 +210,8 @@
         </select>
       </div>
       <div class="half">
-        <label for="chapter_instructions">Instruksi Tambahan:</label>
-        <textarea id="chapter_instructions" name="chapter_instructions" placeholder="Sertakan dialog antar karakter dan narasi yang hidup."></textarea>
+        <label for="chapter_instructions">Instruksi Bab:</label>
+        <textarea id="chapter_instructions" name="chapter_instructions" placeholder="Sertakan dialog antar karakter dan narasi yang hidup." rows="3"></textarea>
       </div>
       <div style="flex: 1 0 100%; text-align: center;">
         <button type="submit">Generate Novel Chapter</button>
@@ -176,6 +234,20 @@
         chapter: document.getElementById("chapter").value,
         chapter_title: document.getElementById("chapter_title").value,
         character_name: document.getElementById("character_name").value,
+        antagonist: document.getElementById("antagonist").value,
+        antagonist_background: document.getElementById("antagonist_background").value,
+        supporting_character: document.getElementById("supporting_character").value,
+        supporting_background: document.getElementById("supporting_background").value,
+        tritagonist: document.getElementById("tritagonist").value,
+        tritagonist_background: document.getElementById("tritagonist_background").value,
+        mentor: document.getElementById("mentor").value,
+        mentor_background: document.getElementById("mentor_background").value,
+        foil: document.getElementById("foil").value,
+        foil_background: document.getElementById("foil_background").value,
+        love_interest: document.getElementById("love_interest").value,
+        love_interest_background: document.getElementById("love_interest_background").value,
+        dynamic_character: document.getElementById("dynamic_character").value,
+        dynamic_character_background: document.getElementById("dynamic_character_background").value,
         genre: document.getElementById("genre").value,
         world_setting: document.getElementById("world_setting").value,
         conflict: document.getElementById("conflict").value,
@@ -198,9 +270,6 @@
         if (data.status === "success") {
           let resultHTML = `<h2>Novel Chapter Generated:</h2><pre>${data.novel}</pre>`;
           let downloadHTML = `<h3>Download Files:</h3>`;
-          if(data.json_filepath) {
-            downloadHTML += `<a href="/download/${data.json_filepath}" download>Download JSON</a>`;
-          }
           if(data.doc_filepath) {
             downloadHTML += `<a href="/download/${data.doc_filepath}" download>Download DOC</a>`;
           }
