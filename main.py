@@ -277,11 +277,12 @@ def generate_novel_endpoint():
 @app.route('/download/<path:filename>', methods=['GET'])
 def download_file(filename):
     try:
-        # filename diharapkan berupa relative path, misalnya: novel_KisahPohonMisterius/bab1.doc
-        # Pisahkan directory dan nama file untuk send_from_directory
-        directory = os.path.join(TEMP_DIR, os.path.dirname(filename))
-        file_name = os.path.basename(filename)
-        return send_file(directory, file_name, as_attachment=True)
+        # filename adalah relative path, misalnya "novel_PohonMisterius/prolog - PohonMisterius.doc"
+        absolute_path = os.path.join(TEMP_DIR, filename)
+        if os.path.exists(absolute_path):
+            return send_file(absolute_path, as_attachment=True)
+        else:
+            return f"File tidak ditemukan: {absolute_path}", 404
     except Exception as e:
         return str(e), 404
 
