@@ -10,7 +10,7 @@ from datetime import datetime
 
 app = Flask(__name__, template_folder='template')
 
-# Gunakan direktori sementara untuk Vercel atau lingkungan lain yang read-only
+# Gunakan direktori sementara untuk Vercel (atau lingkungan lain yang read-only)
 TEMP_DIR = tempfile.gettempdir()
 
 # Batas maksimum panjang prompt (dalam karakter)
@@ -36,9 +36,8 @@ def init_db():
     conn.commit()
     conn.close()
 
-# Pastikan database diinisialisasi sebelum setiap request (hanya sekali)
+# Pastikan database diinisialisasi sebelum request pertama
 db_initialized = False
-
 @app.before_request
 def initialize_db_once():
     global db_initialized
@@ -53,11 +52,13 @@ def delete_old_chapters():
     rows = c.fetchall()
     for row in rows:
         _, doc_filepath = row
-        if doc_filepath and os.path.exists(doc_filepath):
+        # doc_filepath disini adalah relative path, jadi buat full path
+        full_path = os.path.join(TEMP_DIR, doc_filepath)
+        if doc_filepath and os.path.exists(full_path):
             try:
-                os.remove(doc_filepath)
+                os.remove(full_path)
             except Exception as e:
-                print("Gagal menghapus file:", doc_filepath, e)
+                print("Gagal menghapus file:", full_path, e)
     c.execute("DELETE FROM chapters WHERE created_at < datetime('now', '-7 days')")
     conn.commit()
     conn.close()
@@ -144,7 +145,10 @@ def generate_novel_endpoint():
         if new_order is None:
             return jsonify({"status": "error", "message": "Format chapter tidak valid. Gunakan 'Prolog' atau 'Bab <nomor>'."}), 400
 
-        folder_name = os.path.join(TEMP_DIR, f"novel_{sanitize_title(novel_title)}")
+        # Folder penyimpanan untuk dokumen dan database, simpan di TEMP_DIR
+        # Gunakan struktur folder relatif, misalnya "novel_<judul_sanitized>"
+        relative_folder = f"novel_{sanitize_title(novel_title)}"
+        folder_name = os.path.join(TEMP_DIR, relative_folder)
         if not os.path.exists(folder_name):
             os.makedirs(folder_name)
 
@@ -203,19 +207,25 @@ def generate_novel_endpoint():
         if response.status_code == 200:
             generated_story = response.text
 
+            # Buat dokumen Word
             doc = Document()
             doc.add_heading(chapter_title if chapter_title else chapter_input, level=1)
             add_markdown_to_doc(doc, generated_story)
             doc_filename = "prolog.doc" if chapter_input.lower() == "prolog" else f"bab{new_order}.doc"
+            # Simpan dokumen ke folder yang sudah dibuat (relative path)
             doc_filepath = os.path.join(folder_name, doc_filename)
             doc.save(doc_filepath)
+            
+            # Relative path untuk download (tanpa TEMP_DIR)
+            relative_doc_path = os.path.join(relative_folder, doc_filename)
 
+            # Simpan data ke database SQLite
             conn = sqlite3.connect(DATABASE)
             c = conn.cursor()
             c.execute("""
                 INSERT INTO chapters (novel_title, chapter, chapter_title, chapter_order, narrative_type, content, doc_filepath)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (novel_title, chapter_input, chapter_title, new_order, narrative_type, generated_story, doc_filepath))
+            """, (novel_title, chapter_input, chapter_title, new_order, narrative_type, generated_story, relative_doc_path))
             conn.commit()
             conn.close()
 
@@ -224,7 +234,7 @@ def generate_novel_endpoint():
                 "novel_title": novel_title,
                 "chapter": chapter_input,
                 "order": new_order,
-                "doc_filepath": doc_filepath,
+                "doc_filepath": relative_doc_path,
                 "novel": generated_story
             })
         else:
