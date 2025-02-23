@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, render_template, send_file
+from flask import Flask, request, jsonify, send_from_directory, render_template
 import urllib.parse
 import requests
 import os
@@ -15,7 +15,7 @@ TEMP_DIR = tempfile.gettempdir()
 
 # Batas maksimum panjang prompt (dalam karakter)
 MAX_PROMPT_LENGTH = 1500
-DATABASE = os.path.join(TEMP_DIR, 'novels.db')  # Database disimpan di TEMP_DIR
+DATABASE = os.path.join(TEMP_DIR, 'novels.db')  # Database disimpan di /tmp/
 
 def init_db():
     conn = sqlite3.connect(DATABASE)
@@ -52,7 +52,7 @@ def delete_old_chapters():
     rows = c.fetchall()
     for row in rows:
         _, doc_filepath = row
-        # doc_filepath adalah relative path; buat full path di TEMP_DIR
+        # doc_filepath adalah relative path; buat full path dari TEMP_DIR
         full_path = os.path.join(TEMP_DIR, doc_filepath)
         if doc_filepath and os.path.exists(full_path):
             try:
@@ -64,7 +64,6 @@ def delete_old_chapters():
     conn.close()
 
 def sanitize_title(title):
-    # Ganti spasi dengan underscore dan buang karakter non-alfanumerik/underscore
     return re.sub(r'\W+', '', title.replace(" ", "_"))
 
 def get_chapter_order(chapter_input):
@@ -91,7 +90,6 @@ def get_context_from_db(novel_title, new_order):
     return context
 
 def add_markdown_line_to_paragraph(paragraph, text):
-    # Deteksi teks **bold** dan sisipkan run dengan bold=True
     parts = re.split(r'(\*\*.*?\*\*)', text)
     for part in parts:
         if part.startswith("**") and part.endswith("**"):
@@ -129,11 +127,8 @@ def generate_novel_endpoint():
         delete_old_chapters()
         data = request.json
 
-        # Data dasar
         chapter_input   = data.get("chapter", "Prolog")
-        novel_title     = data.get("novel_title", "Novel Tanpa Judul")
-        chapter_title   = data.get("chapter_title", "")
-        character_name  = data.get("character_name", "Raka")
+        character_name  = data.get("character_name", "Alex")
         genre           = data.get("genre", "Fantasy")
         world_setting   = data.get("world_setting", "Dunia paralel penuh keajaiban")
         conflict        = data.get("conflict", "Menyelamatkan dunia dari ancaman gelap")
@@ -141,113 +136,38 @@ def generate_novel_endpoint():
         plot_twist      = data.get("plot_twist", "Musuh utama ternyata saudara kembarnya")
         writing_style   = data.get("writing_style", "Misterius dan dramatis")
         narrative_type  = data.get("narrative_type", "linear")
+        novel_title     = data.get("novel_title", "Novel Tanpa Judul")
+        chapter_title   = data.get("chapter_title", "")
         chapter_instructions = data.get("chapter_instructions", 
             "Ceritakan bab ini dengan detail, sertakan dialog antar karakter dan narasi yang hidup.")
-
-        # Data tambahan karakter dengan default
-        antagonist = data.get("antagonist", "")
-        antagonist_background = data.get("antagonist_background", "")
-        supporting_character = data.get("supporting_character", "")
-        supporting_background = data.get("supporting_background", "")
-        tritagonist = data.get("tritagonist", "")
-        tritagonist_background = data.get("tritagonist_background", "")
-        mentor = data.get("mentor", "")
-        mentor_background = data.get("mentor_background", "")
-        foil = data.get("foil", "")
-        foil_background = data.get("foil_background", "")
-        love_interest = data.get("love_interest", "")
-        love_interest_background = data.get("love_interest_background", "")
-        dynamic_character = data.get("dynamic_character", "")
-        dynamic_character_background = data.get("dynamic_character_background", "")
 
         new_order = get_chapter_order(chapter_input)
         if new_order is None:
             return jsonify({"status": "error", "message": "Format chapter tidak valid. Gunakan 'Prolog' atau 'Bab <nomor>'."}), 400
 
-        # Buat folder relatif untuk novel di TEMP_DIR
+        # Buat folder relatif (misalnya: novel_KisahPohonMisterius) di TEMP_DIR
         relative_folder = f"novel_{sanitize_title(novel_title)}"
         folder_name = os.path.join(TEMP_DIR, relative_folder)
         if not os.path.exists(folder_name):
             os.makedirs(folder_name)
 
-        context_prompt = ""
-        if narrative_type.lower() == "linear":
-            context_prompt = get_context_from_db(novel_title, new_order)
+        context_prompt = get_context_from_db(novel_title, new_order) if narrative_type.lower() == "linear" else ""
 
-        # Bangun prompt berdasarkan jenis chapter
         if chapter_input.lower() == "prolog":
             chapter_prompt = f"""
             === {chapter_input.upper()} ===
             Tuliskan prolog dengan pengenalan dunia dan karakter secara mendalam.
             Gunakan deskripsi, dialog, dan narasi untuk memperkenalkan latar cerita.
-            Informasi tambahan:
-            - Genre: {genre}
-            - Dunia: {world_setting}
-            - Tokoh Utama: {character_name} dengan kekuatan {special_power}
-            - Konflik: {conflict}
-            - Plot Twist: {plot_twist}
-            - Gaya: {writing_style}
-            
-            {chapter_instructions} dengan prolog yang konsisten hanya prolog saja
+            Informasi tambahan:\n- Genre: {genre}\n- Dunia: {world_setting}\n- Tokoh Utama: {character_name} dengan kekuatan {special_power}\n- Konflik: {conflict}\n- Plot Twist: {plot_twist}\n- Gaya: {writing_style}\n\n{chapter_instructions}
             """
         else:
             chapter_prompt = f"""
             === {chapter_input.upper()} ===
             Tuliskan bab ini sebagai kelanjutan cerita yang naratif, dengan dialog antar karakter, deskripsi mendalam, dan alur cerita yang koheren.
             Jangan hanya menampilkan template, tetapi kembangkan cerita menjadi narasi yang hidup.
-            Gunakan informasi berikut sebagai dasar:
-            Genre: {genre}
-            Dunia: {world_setting}
-            Tokoh Utama: {character_name} dengan kekuatan {special_power}
-            Konflik: {conflict}
-            Plot Twist: {plot_twist}
-            Gaya: {writing_style}
-            
-            {chapter_instructions} dengan cerita yang konsisten hanya cerita saja
+            Gunakan informasi berikut sebagai dasar:\nGenre: {genre}\nDunia: {world_setting}\nTokoh Utama: {character_name} dengan kekuatan {special_power}\nKonflik: {conflict}\nPlot Twist: {plot_twist}\nGaya: {writing_style}\n\n{chapter_instructions}
             """
-
-        # Tambahkan informasi karakter tambahan ke prompt
-        additional_characters = ""
-        if antagonist:
-            additional_characters += f"- **Antagonis:** {antagonist}"
-            if antagonist_background:
-                additional_characters += f" (Background: {antagonist_background})"
-            additional_characters += "\n"
-        if supporting_character:
-            additional_characters += f"- **Karakter Pendamping:** {supporting_character}"
-            if supporting_background:
-                additional_characters += f" (Background: {supporting_background})"
-            additional_characters += "\n"
-        if tritagonist:
-            additional_characters += f"- **Tritagonis:** {tritagonist}"
-            if tritagonist_background:
-                additional_characters += f" (Background: {tritagonist_background})"
-            additional_characters += "\n"
-        if mentor:
-            additional_characters += f"- **Mentor:** {mentor}"
-            if mentor_background:
-                additional_characters += f" (Background: {mentor_background})"
-            additional_characters += "\n"
-        if foil:
-            additional_characters += f"- **Foil:** {foil}"
-            if foil_background:
-                additional_characters += f" (Background: {foil_background})"
-            additional_characters += "\n"
-        if love_interest:
-            additional_characters += f"- **Love Interest:** {love_interest}"
-            if love_interest_background:
-                additional_characters += f" (Background: {love_interest_background})"
-            additional_characters += "\n"
-        if dynamic_character:
-            additional_characters += f"- **Karakter Dinamis:** {dynamic_character}"
-            if dynamic_character_background:
-                additional_characters += f" (Background: {dynamic_character_background})"
-            additional_characters += "\n"
-        
-        if additional_characters:
-            chapter_prompt += "\nAdditional Characters:\n" + additional_characters
-        
-        # Bangun prompt akhir
+        # Hapus bagian template_info dari prompt, gunakan hanya chapter_prompt dan context_prompt
         full_prompt = chapter_prompt + "\n" + context_prompt
         if len(full_prompt) > MAX_PROMPT_LENGTH:
             required_prompt = chapter_prompt + "\n"
@@ -262,36 +182,26 @@ def generate_novel_endpoint():
         if response.status_code == 200:
             generated_story = response.text
 
-            # Gunakan ekspresi kondisional untuk menentukan nama file
-            doc_filename = (
-                f"prolog - {sanitize_title(novel_title)}.doc"
-                if chapter_input.lower() == "prolog"
-                else f"bab{new_order}-{sanitize_title(novel_title)}.doc"
-            )
-            doc_filepath = os.path.join(folder_name, doc_filename)
-
-            # Simpan dokumen di /tmp/ (folder_name)
+            # Buat dokumen Word dan simpan ke folder yang sudah dibuat
             doc = Document()
             doc.add_heading(chapter_title if chapter_title else chapter_input, level=1)
             add_markdown_to_doc(doc, generated_story)
+            doc_filename = "prolog.doc" if chapter_input.lower() == "prolog" else f"bab{new_order}.doc"
+            doc_filepath = os.path.join(folder_name, doc_filename)
             doc.save(doc_filepath)
             
-            # Buat relative path (tanpa TEMP_DIR) untuk disimpan ke DB
+            # Buat relative path (tanpa TEMP_DIR) untuk disimpan ke DB dan digunakan di endpoint download
             relative_doc_path = os.path.join(relative_folder, doc_filename)
             
-            # Simpan ke database
             conn = sqlite3.connect(DATABASE)
             c = conn.cursor()
             c.execute("""
                 INSERT INTO chapters (novel_title, chapter, chapter_title, chapter_order, narrative_type, content, doc_filepath)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (
-                novel_title, chapter_input, chapter_title, new_order,
-                narrative_type, generated_story, relative_doc_path
-            ))
+            """, (novel_title, chapter_input, chapter_title, new_order, narrative_type, generated_story, relative_doc_path))
             conn.commit()
             conn.close()
-            
+
             return jsonify({
                 "status": "success",
                 "novel_title": novel_title,
@@ -308,13 +218,8 @@ def generate_novel_endpoint():
 @app.route('/download/<path:filename>', methods=['GET'])
 def download_file(filename):
     try:
-        # Di Vercel, direktori /tmp/ adalah satu-satunya tempat yang bisa ditulisi
-        absolute_path = os.path.join(TEMP_DIR, filename)
-        # print("Download request for:", absolute_path)  # Debug log
-        if os.path.exists(absolute_path):
-            return send_file(absolute_path, as_attachment=True)
-        else:
-            return f"File tidak ditemukan: {absolute_path}. (Ephemeral Vercel filesystem)", 404
+        # filename diharapkan berupa relative path, misalnya: novel_KisahPohonMisterius/bab1.doc
+        return send_from_directory(TEMP_DIR, filename, as_attachment=True)
     except Exception as e:
         return str(e), 404
 
