@@ -52,7 +52,8 @@ def delete_old_chapters():
     rows = c.fetchall()
     for row in rows:
         _, doc_filepath = row
-        full_path = os.path.join(TEMP_DIR, doc_filepath)  # Buat full path dari relative path
+        # doc_filepath adalah relative path; buat full path di TEMP_DIR
+        full_path = os.path.join(TEMP_DIR, doc_filepath)
         if doc_filepath and os.path.exists(full_path):
             try:
                 os.remove(full_path)
@@ -128,8 +129,8 @@ def generate_novel_endpoint():
 
         # Data dasar
         chapter_input   = data.get("chapter", "Prolog")
-        novel_title     = data.get("novel_title", "Kisah Pohon Misterius")
-        chapter_title   = data.get("chapter_title", "Awal Keanehan")
+        novel_title     = data.get("novel_title", "Novel Tanpa Judul")
+        chapter_title   = data.get("chapter_title", "")
         character_name  = data.get("character_name", "Raka")
         genre           = data.get("genre", "Fantasy")
         world_setting   = data.get("world_setting", "Dunia paralel penuh keajaiban")
@@ -156,7 +157,7 @@ def generate_novel_endpoint():
         love_interest_background = data.get("love_interest_background", "")
         dynamic_character = data.get("dynamic_character", "")
         dynamic_character_background = data.get("dynamic_character_background", "")
-        
+
         new_order = get_chapter_order(chapter_input)
         if new_order is None:
             return jsonify({"status": "error", "message": "Format chapter tidak valid. Gunakan 'Prolog' atau 'Bab <nomor>'."}), 400
@@ -173,16 +174,16 @@ def generate_novel_endpoint():
         if chapter_input.lower() == "prolog":
             chapter_prompt = f"""
             === {chapter_input.upper()} ===
-            Tuliskan prolog pengenalan dunia dan karakter secara mendalam.
+            Tuliskan prolog dengan pengenalan dunia dan karakter secara mendalam.
             Gunakan deskripsi, dialog, dan narasi untuk memperkenalkan latar cerita.
-            Informasi tambahan:\n- Genre: {genre}\n- Dunia: {world_setting}\n- Tokoh Utama: {character_name} dengan kekuatan {special_power}\n- Konflik: {conflict}\n- Plot Twist: {plot_twist}\n- Gaya: {writing_style}\n\n{chapter_instructions} dengan prolog yang konsisten
+            Informasi tambahan:\n- Genre: {genre}\n- Dunia: {world_setting}\n- Tokoh Utama: {character_name} dengan kekuatan {special_power}\n- Konflik: {conflict}\n- Plot Twist: {plot_twist}\n- Gaya: {writing_style}\n\n{chapter_instructions} dengan prolog yang konsisten hanya prolog saja
             """
         else:
             chapter_prompt = f"""
             === {chapter_input.upper()} ===
             Tuliskan bab ini sebagai kelanjutan cerita yang naratif, dengan dialog antar karakter, deskripsi mendalam, dan alur cerita yang koheren.
             Jangan hanya menampilkan template, tetapi kembangkan cerita menjadi narasi yang hidup.
-            Gunakan informasi berikut sebagai dasar:\nGenre: {genre}\nDunia: {world_setting}\nTokoh Utama: {character_name} dengan kekuatan {special_power}\nKonflik: {conflict}\nPlot Twist: {plot_twist}\nGaya: {writing_style}\n\n{chapter_instructions} dengan cerita yang selalu konsisten
+            Gunakan informasi berikut sebagai dasar:\nGenre: {genre}\nDunia: {world_setting}\nTokoh Utama: {character_name} dengan kekuatan {special_power}\nKonflik: {conflict}\nPlot Twist: {plot_twist}\nGaya: {writing_style}\n\n{chapter_instructions} dengan cerita yang konsisten hanya cerita saja
             """
         # Tambahkan informasi karakter tambahan ke prompt
         additional_characters = ""
@@ -225,7 +226,7 @@ def generate_novel_endpoint():
         if additional_characters:
             chapter_prompt += "\nAdditional Characters:\n" + additional_characters
         
-        # Hapus bagian template utama, gunakan hanya chapter_prompt dan context_prompt
+        # Hapus bagian template utama; gunakan hanya chapter_prompt dan context_prompt
         full_prompt = chapter_prompt + "\n" + context_prompt
         if len(full_prompt) > MAX_PROMPT_LENGTH:
             required_prompt = chapter_prompt + "\n"
@@ -240,18 +241,14 @@ def generate_novel_endpoint():
         if response.status_code == 200:
             generated_story = response.text
 
-            # Buat dokumen Word dan simpan ke folder yang sudah dibuat
-            doc = Document()
-            doc.add_heading(chapter_title if chapter_title else chapter_input, level=1)
-            add_markdown_to_doc(doc, generated_story)
+            # Gunakan ekspresi kondisional untuk menentukan nama file
             doc_filename = f"prolog - {sanitize_title(novel_title)}.doc" if chapter_input.lower() == "prolog" else f"bab{new_order}-{sanitize_title(novel_title)}.doc"
             doc_filepath = os.path.join(folder_name, doc_filename)
-            doc.save(doc_filepath)
-            
             doc = Document()
             doc.add_heading(chapter_title if chapter_title else chapter_input, level=1)
             add_markdown_to_doc(doc, generated_story)
             doc.save(doc_filepath)
+            
             # Buat relative path (tanpa TEMP_DIR) untuk disimpan ke DB dan digunakan di endpoint download
             relative_doc_path = os.path.join(relative_folder, doc_filename)
             
@@ -281,7 +278,10 @@ def generate_novel_endpoint():
 def download_file(filename):
     try:
         # filename diharapkan berupa relative path, misalnya: novel_KisahPohonMisterius/bab1.doc
-        return send_from_directory(TEMP_DIR, filename, as_attachment=True)
+        # Pisahkan directory dan nama file untuk send_from_directory
+        directory = os.path.join(TEMP_DIR, os.path.dirname(filename))
+        file_name = os.path.basename(filename)
+        return send_from_directory(directory, file_name, as_attachment=True)
     except Exception as e:
         return str(e), 404
 
