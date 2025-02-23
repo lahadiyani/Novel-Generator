@@ -15,7 +15,7 @@ TEMP_DIR = tempfile.gettempdir()
 
 # Batas maksimum panjang prompt (dalam karakter)
 MAX_PROMPT_LENGTH = 1500
-DATABASE = os.path.join(TEMP_DIR, 'novels.db')  # Database juga di /tmp/
+DATABASE = os.path.join(TEMP_DIR, 'novels.db')  # Database disimpan di /tmp/
 
 # Inisialisasi database dan buat tabel jika belum ada
 def init_db():
@@ -37,7 +37,11 @@ def init_db():
     conn.commit()
     conn.close()
 
-# Fungsi untuk menghapus data yang lebih dari 7 hari beserta file dokumen Word-nya
+# Pastikan database diinisialisasi sebelum request pertama
+@app.before_first_request
+def initialize():
+    init_db()
+
 def delete_old_chapters():
     conn = sqlite3.connect(DATABASE)
     c = conn.cursor()
@@ -65,7 +69,6 @@ def get_chapter_order(chapter_input):
         match = re.search(r'bab\s*(\d+)', chapter_lower)
         return int(match.group(1)) if match else None
 
-# Fungsi untuk mengambil konteks dari database untuk narrative linear
 def get_context_from_db(novel_title, new_order):
     conn = sqlite3.connect(DATABASE)
     c = conn.cursor()
@@ -81,7 +84,6 @@ def get_context_from_db(novel_title, new_order):
         context += f"{chapter} content: {content}\n"
     return context
 
-# Fungsi helper untuk menambahkan teks ke paragraf dengan mendeteksi format bold (teks antara **)
 def add_markdown_line_to_paragraph(paragraph, text):
     parts = re.split(r'(\*\*.*?\*\*)', text)
     for part in parts:
@@ -117,10 +119,9 @@ def index():
 @app.route('/generate_novel', methods=['POST'])
 def generate_novel_endpoint():
     try:
-        # Hapus data lama (lebih dari 7 hari) setiap kali endpoint dipanggil
         delete_old_chapters()
-
         data = request.json
+
         chapter_input   = data.get("chapter", "Prolog")
         character_name  = data.get("character_name", "Alex")
         genre           = data.get("genre", "Fantasy")
@@ -139,14 +140,11 @@ def generate_novel_endpoint():
         if new_order is None:
             return jsonify({"status": "error", "message": "Format chapter tidak valid. Gunakan 'Prolog' atau 'Bab <nomor>'."}), 400
 
-        # Buat folder penyimpanan di dalam /tmp/
         folder_name = os.path.join(TEMP_DIR, f"novel_{sanitize_title(novel_title)}")
         if not os.path.exists(folder_name):
             os.makedirs(folder_name)
 
-        context_prompt = ""
-        if narrative_type.lower() == "linear":
-            context_prompt = get_context_from_db(novel_title, new_order)
+        context_prompt = get_context_from_db(novel_title, new_order) if narrative_type.lower() == "linear" else ""
 
         if chapter_input.lower() == "prolog":
             chapter_prompt = f"""
@@ -188,7 +186,6 @@ def generate_novel_endpoint():
         Gaya: {writing_style}
         """
         full_prompt = template_info + "\n" + chapter_prompt + "\n" + context_prompt
-
         if len(full_prompt) > MAX_PROMPT_LENGTH:
             required_prompt = template_info + "\n" + chapter_prompt + "\n"
             allowed_context_length = MAX_PROMPT_LENGTH - len(required_prompt)
@@ -202,7 +199,6 @@ def generate_novel_endpoint():
         if response.status_code == 200:
             generated_story = response.text
 
-            # Buat dokumen Word dan simpan ke folder di /tmp/
             doc = Document()
             doc.add_heading(chapter_title if chapter_title else chapter_input, level=1)
             add_markdown_to_doc(doc, generated_story)
@@ -210,7 +206,6 @@ def generate_novel_endpoint():
             doc_filepath = os.path.join(folder_name, doc_filename)
             doc.save(doc_filepath)
 
-            # Simpan data ke database SQLite
             conn = sqlite3.connect(DATABASE)
             c = conn.cursor()
             c.execute("""
