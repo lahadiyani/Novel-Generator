@@ -10,12 +10,10 @@ from datetime import datetime
 
 app = Flask(__name__, template_folder='template')
 
-# Gunakan direktori sementara untuk Vercel (atau lingkungan lain yang read-only)
+# Gunakan direktori sementara untuk penyimpanan
 TEMP_DIR = tempfile.gettempdir()
-
-# Batas maksimum panjang prompt (dalam karakter)
 MAX_PROMPT_LENGTH = 1500
-DATABASE = os.path.join(TEMP_DIR, 'novels.db')  # Database disimpan di /tmp/
+DATABASE = os.path.join(TEMP_DIR, 'novels.db')
 
 def init_db():
     conn = sqlite3.connect(DATABASE)
@@ -36,7 +34,6 @@ def init_db():
     conn.commit()
     conn.close()
 
-# Pastikan database diinisialisasi sebelum request pertama
 db_initialized = False
 @app.before_request
 def initialize_db_once():
@@ -45,24 +42,6 @@ def initialize_db_once():
         init_db()
         db_initialized = True
 
-def delete_old_chapters():
-    conn = sqlite3.connect(DATABASE)
-    c = conn.cursor()
-    c.execute("SELECT id, doc_filepath FROM chapters WHERE created_at < datetime('now', '-7 days')")
-    rows = c.fetchall()
-    for row in rows:
-        _, doc_filepath = row
-        # doc_filepath disini adalah relative path, jadi buat full path
-        full_path = os.path.join(TEMP_DIR, doc_filepath)
-        if doc_filepath and os.path.exists(full_path):
-            try:
-                os.remove(full_path)
-            except Exception as e:
-                print("Gagal menghapus file:", full_path, e)
-    c.execute("DELETE FROM chapters WHERE created_at < datetime('now', '-7 days')")
-    conn.commit()
-    conn.close()
-
 def sanitize_title(title):
     return re.sub(r'\W+', '', title.replace(" ", "_"))
 
@@ -70,9 +49,8 @@ def get_chapter_order(chapter_input):
     chapter_lower = chapter_input.lower().strip()
     if chapter_lower == "prolog":
         return 0
-    else:
-        match = re.search(r'bab\s*(\d+)', chapter_lower)
-        return int(match.group(1)) if match else None
+    match = re.search(r'bab\s*(\d+)', chapter_lower)
+    return int(match.group(1)) if match else None
 
 def get_context_from_db(novel_title, new_order):
     conn = sqlite3.connect(DATABASE)
@@ -84,38 +62,14 @@ def get_context_from_db(novel_title, new_order):
     """, (novel_title, new_order))
     rows = c.fetchall()
     conn.close()
-    context = ""
-    for chapter, content in rows:
-        context += f"{chapter} content: {content}\n"
-    return context
-
-def add_markdown_line_to_paragraph(paragraph, text):
-    parts = re.split(r'(\*\*.*?\*\*)', text)
-    for part in parts:
-        if part.startswith("**") and part.endswith("**"):
-            run = paragraph.add_run(part[2:-2])
-            run.bold = True
-        else:
-            paragraph.add_run(part)
+    return "\n".join(f"{chapter}: {content}" for chapter, content in rows)
 
 def add_markdown_to_doc(doc, markdown_text):
-    lines = markdown_text.splitlines()
-    for line in lines:
-        line = line.strip()
-        if not line:
+    for line in markdown_text.splitlines():
+        if not line.strip():
             continue
-        if line.startswith("#"):
-            level = len(line) - len(line.lstrip("#"))
-            text = line.lstrip("#").strip()
-            level = level if level <= 4 else 4
-            p = doc.add_heading("", level=level)
-            add_markdown_line_to_paragraph(p, text)
-        elif line.startswith("- "):
-            p = doc.add_paragraph(style='List Bullet')
-            add_markdown_line_to_paragraph(p, line[2:])
-        else:
-            p = doc.add_paragraph()
-            add_markdown_line_to_paragraph(p, line)
+        p = doc.add_paragraph()
+        p.add_run(line)
 
 @app.route('/')
 def index():
@@ -124,102 +78,70 @@ def index():
 @app.route('/generate_novel', methods=['POST'])
 def generate_novel_endpoint():
     try:
-        delete_old_chapters()
         data = request.json
 
-        chapter_input   = data.get("chapter", "Prolog")
-        character_name  = data.get("character_name", "Alex")
-        genre           = data.get("genre", "Fantasy")
-        world_setting   = data.get("world_setting", "Dunia paralel penuh keajaiban")
-        conflict        = data.get("conflict", "Menyelamatkan dunia dari ancaman gelap")
-        special_power   = data.get("special_power", "Mengendalikan elemen")
-        plot_twist      = data.get("plot_twist", "Musuh utama ternyata saudara kembarnya")
-        writing_style   = data.get("writing_style", "Misterius dan dramatis")
-        narrative_type  = data.get("narrative_type", "linear")
-        novel_title     = data.get("novel_title", "Novel Tanpa Judul")
-        chapter_title   = data.get("chapter_title", "")
-        chapter_instructions = data.get("chapter_instructions", 
-            "Ceritakan bab ini dengan detail, sertakan dialog antar karakter dan narasi yang hidup.")
+        chapter_input = data.get("chapter", "Prolog")
+        novel_title = data.get("novel_title", "Novel Tanpa Judul")
+        genre = data.get("genre", "Fantasy")
+        world_setting = data.get("world_setting", "Dunia paralel penuh keajaiban")
+        conflict = data.get("conflict", "Menyelamatkan dunia dari ancaman gelap")
+        special_power = data.get("special_power", "Mengendalikan elemen")
+        plot_twist = data.get("plot_twist", "Musuh utama ternyata saudara kembarnya")
+        writing_style = data.get("writing_style", "Misterius dan dramatis")
+        narrative_type = data.get("narrative_type", "linear")
+        chapter_title = data.get("chapter_title", "")
+        chapter_instructions = data.get("chapter_instructions", "Ceritakan bab ini dengan detail.")
 
         new_order = get_chapter_order(chapter_input)
         if new_order is None:
-            return jsonify({"status": "error", "message": "Format chapter tidak valid. Gunakan 'Prolog' atau 'Bab <nomor>'."}), 400
-
-        # Folder penyimpanan untuk dokumen dan database, simpan di TEMP_DIR
-        # Gunakan struktur folder relatif, misalnya "novel_<judul_sanitized>"
-        relative_folder = f"novel_{sanitize_title(novel_title)}"
-        folder_name = os.path.join(TEMP_DIR, relative_folder)
-        if not os.path.exists(folder_name):
-            os.makedirs(folder_name)
+            return jsonify({"status": "error", "message": "Format chapter tidak valid."}), 400
 
         context_prompt = get_context_from_db(novel_title, new_order) if narrative_type.lower() == "linear" else ""
 
-        if chapter_input.lower() == "prolog":
-            chapter_prompt = f"""
-            === {chapter_input.upper()} ===
-            Tuliskan prolog dengan pengenalan dunia dan karakter secara mendalam.
-            Gunakan deskripsi, dialog, dan narasi untuk memperkenalkan latar cerita.
-            Informasi tambahan:
-            - Genre: {genre}
-            - Dunia: {world_setting}
-            - Tokoh Utama: {character_name} dengan kekuatan {special_power}
-            - Konflik: {conflict}
-            - Plot Twist: {plot_twist}
-            - Gaya: {writing_style}
-            
-            {chapter_instructions}
-            """
-        else:
-            chapter_prompt = f"""
-            === {chapter_input.upper()} ===
-            Tuliskan bab ini sebagai kelanjutan cerita yang naratif, dengan dialog antar karakter, deskripsi mendalam, dan alur cerita yang koheren.
-            Jangan hanya menampilkan template, tetapi kembangkan cerita menjadi narasi yang hidup.
-            Gunakan informasi berikut sebagai dasar:
-            Genre: {genre}
-            Dunia: {world_setting}
-            Tokoh Utama: {character_name} dengan kekuatan {special_power}
-            Konflik: {conflict}
-            Plot Twist: {plot_twist}
-            Gaya: {writing_style}
-            
-            {chapter_instructions}
-            """
-        template_info = f"""
-        TEMPLATE UTAMA: WORLD-BUILDING & KARAKTERISASI
+        chapter_prompt = f"""
+        === {chapter_input.upper()} ===
+        Tuliskan bab ini sebagai kelanjutan cerita yang naratif.
+        Gunakan informasi berikut:
         Genre: {genre}
         Dunia: {world_setting}
-        Tokoh Utama: {character_name}
+        Tokoh Utama: memiliki kekuatan {special_power}
         Konflik: {conflict}
         Plot Twist: {plot_twist}
         Gaya: {writing_style}
+        
+        {chapter_instructions}
         """
-        full_prompt = template_info + "\n" + chapter_prompt + "\n" + context_prompt
+        
+        # Hapus template_info dari prompt
+        full_prompt = chapter_prompt + "\n" + context_prompt
+
         if len(full_prompt) > MAX_PROMPT_LENGTH:
-            required_prompt = template_info + "\n" + chapter_prompt + "\n"
+            required_prompt = chapter_prompt + "\n"
             allowed_context_length = MAX_PROMPT_LENGTH - len(required_prompt)
-            allowed_context_length = allowed_context_length if allowed_context_length > 0 else 0
             trimmed_context = context_prompt[-allowed_context_length:] if allowed_context_length > 0 else ""
             full_prompt = required_prompt + trimmed_context
 
         encoded_prompt = urllib.parse.quote(full_prompt)
         pollinations_url = f"https://text.pollinations.ai/openai/{encoded_prompt}"
         response = requests.get(pollinations_url)
+        
         if response.status_code == 200:
             generated_story = response.text
 
-            # Buat dokumen Word
             doc = Document()
             doc.add_heading(chapter_title if chapter_title else chapter_input, level=1)
             add_markdown_to_doc(doc, generated_story)
+            
+            relative_folder = f"novel_{sanitize_title(novel_title)}"
+            folder_name = os.path.join(TEMP_DIR, relative_folder)
+            os.makedirs(folder_name, exist_ok=True)
+
             doc_filename = "prolog.doc" if chapter_input.lower() == "prolog" else f"bab{new_order}.doc"
-            # Simpan dokumen ke folder yang sudah dibuat (relative path)
             doc_filepath = os.path.join(folder_name, doc_filename)
             doc.save(doc_filepath)
             
-            # Relative path untuk download (tanpa TEMP_DIR)
             relative_doc_path = os.path.join(relative_folder, doc_filename)
 
-            # Simpan data ke database SQLite
             conn = sqlite3.connect(DATABASE)
             c = conn.cursor()
             c.execute("""
