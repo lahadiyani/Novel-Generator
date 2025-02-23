@@ -4,20 +4,20 @@ import requests
 import os
 import re
 import sqlite3
-import tempfile  # Untuk menyimpan file di sistem read-only
+import tempfile
 from docx import Document
 from datetime import datetime
 
 app = Flask(__name__, template_folder='template')
 
-# Folder penyimpanan sementara di Vercel
+# Gunakan direktori sementara untuk Vercel
 TEMP_DIR = tempfile.gettempdir()
 
 # Batas maksimum panjang prompt (dalam karakter)
 MAX_PROMPT_LENGTH = 1500
-DATABASE = os.path.join(TEMP_DIR, 'novels.db')  # Simpan SQLite di /tmp/
+DATABASE = os.path.join(TEMP_DIR, 'novels.db')  # Database juga di /tmp/
 
-# Inisialisasi database
+# Inisialisasi database dan buat tabel jika belum ada
 def init_db():
     conn = sqlite3.connect(DATABASE)
     c = conn.cursor()
@@ -37,7 +37,7 @@ def init_db():
     conn.commit()
     conn.close()
 
-# Hapus data lebih dari 7 hari
+# Fungsi untuk menghapus data yang lebih dari 7 hari beserta file dokumen Word-nya
 def delete_old_chapters():
     conn = sqlite3.connect(DATABASE)
     c = conn.cursor()
@@ -65,6 +65,7 @@ def get_chapter_order(chapter_input):
         match = re.search(r'bab\s*(\d+)', chapter_lower)
         return int(match.group(1)) if match else None
 
+# Fungsi untuk mengambil konteks dari database untuk narrative linear
 def get_context_from_db(novel_title, new_order):
     conn = sqlite3.connect(DATABASE)
     c = conn.cursor()
@@ -75,7 +76,39 @@ def get_context_from_db(novel_title, new_order):
     """, (novel_title, new_order))
     rows = c.fetchall()
     conn.close()
-    return "\n".join(f"{chapter}: {content}" for chapter, content in rows)
+    context = ""
+    for chapter, content in rows:
+        context += f"{chapter} content: {content}\n"
+    return context
+
+# Fungsi helper untuk menambahkan teks ke paragraf dengan mendeteksi format bold (teks antara **)
+def add_markdown_line_to_paragraph(paragraph, text):
+    parts = re.split(r'(\*\*.*?\*\*)', text)
+    for part in parts:
+        if part.startswith("**") and part.endswith("**"):
+            run = paragraph.add_run(part[2:-2])
+            run.bold = True
+        else:
+            paragraph.add_run(part)
+
+def add_markdown_to_doc(doc, markdown_text):
+    lines = markdown_text.splitlines()
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        if line.startswith("#"):
+            level = len(line) - len(line.lstrip("#"))
+            text = line.lstrip("#").strip()
+            level = level if level <= 4 else 4
+            p = doc.add_heading("", level=level)
+            add_markdown_line_to_paragraph(p, text)
+        elif line.startswith("- "):
+            p = doc.add_paragraph(style='List Bullet')
+            add_markdown_line_to_paragraph(p, line[2:])
+        else:
+            p = doc.add_paragraph()
+            add_markdown_line_to_paragraph(p, line)
 
 @app.route('/')
 def index():
@@ -84,6 +117,7 @@ def index():
 @app.route('/generate_novel', methods=['POST'])
 def generate_novel_endpoint():
     try:
+        # Hapus data lama (lebih dari 7 hari) setiap kali endpoint dipanggil
         delete_old_chapters()
 
         data = request.json
@@ -98,43 +132,85 @@ def generate_novel_endpoint():
         narrative_type  = data.get("narrative_type", "linear")
         novel_title     = data.get("novel_title", "Novel Tanpa Judul")
         chapter_title   = data.get("chapter_title", "")
+        chapter_instructions = data.get("chapter_instructions", 
+            "Ceritakan bab ini dengan detail, sertakan dialog antar karakter dan narasi yang hidup.")
 
         new_order = get_chapter_order(chapter_input)
         if new_order is None:
             return jsonify({"status": "error", "message": "Format chapter tidak valid. Gunakan 'Prolog' atau 'Bab <nomor>'."}), 400
 
-        context_prompt = get_context_from_db(novel_title, new_order) if narrative_type.lower() == "linear" else ""
+        # Buat folder penyimpanan di dalam /tmp/
+        folder_name = os.path.join(TEMP_DIR, f"novel_{sanitize_title(novel_title)}")
+        if not os.path.exists(folder_name):
+            os.makedirs(folder_name)
 
-        chapter_prompt = f"""
-        === {chapter_input.upper()} ===
+        context_prompt = ""
+        if narrative_type.lower() == "linear":
+            context_prompt = get_context_from_db(novel_title, new_order)
+
+        if chapter_input.lower() == "prolog":
+            chapter_prompt = f"""
+            === {chapter_input.upper()} ===
+            Tuliskan prolog dengan pengenalan dunia dan karakter secara mendalam.
+            Gunakan deskripsi, dialog, dan narasi untuk memperkenalkan latar cerita.
+            Informasi tambahan:
+            - Genre: {genre}
+            - Dunia: {world_setting}
+            - Tokoh Utama: {character_name} dengan kekuatan {special_power}
+            - Konflik: {conflict}
+            - Plot Twist: {plot_twist}
+            - Gaya: {writing_style}
+            
+            {chapter_instructions}
+            """
+        else:
+            chapter_prompt = f"""
+            === {chapter_input.upper()} ===
+            Tuliskan bab ini sebagai kelanjutan cerita yang naratif, dengan dialog antar karakter, deskripsi mendalam, dan alur cerita yang koheren.
+            Jangan hanya menampilkan template, tetapi kembangkan cerita menjadi narasi yang hidup.
+            Gunakan informasi berikut sebagai dasar:
+            Genre: {genre}
+            Dunia: {world_setting}
+            Tokoh Utama: {character_name} dengan kekuatan {special_power}
+            Konflik: {conflict}
+            Plot Twist: {plot_twist}
+            Gaya: {writing_style}
+            
+            {chapter_instructions}
+            """
+        template_info = f"""
+        TEMPLATE UTAMA: WORLD-BUILDING & KARAKTERISASI
         Genre: {genre}
         Dunia: {world_setting}
-        Tokoh Utama: {character_name} dengan kekuatan {special_power}
+        Tokoh Utama: {character_name}
         Konflik: {conflict}
         Plot Twist: {plot_twist}
         Gaya: {writing_style}
         """
+        full_prompt = template_info + "\n" + chapter_prompt + "\n" + context_prompt
 
-        full_prompt = chapter_prompt + "\n" + context_prompt
         if len(full_prompt) > MAX_PROMPT_LENGTH:
-            full_prompt = full_prompt[:MAX_PROMPT_LENGTH]
+            required_prompt = template_info + "\n" + chapter_prompt + "\n"
+            allowed_context_length = MAX_PROMPT_LENGTH - len(required_prompt)
+            allowed_context_length = allowed_context_length if allowed_context_length > 0 else 0
+            trimmed_context = context_prompt[-allowed_context_length:] if allowed_context_length > 0 else ""
+            full_prompt = required_prompt + trimmed_context
 
         encoded_prompt = urllib.parse.quote(full_prompt)
-        response = requests.get(f"https://text.pollinations.ai/openai/{encoded_prompt}")
-        
+        pollinations_url = f"https://text.pollinations.ai/openai/{encoded_prompt}"
+        response = requests.get(pollinations_url)
         if response.status_code == 200:
             generated_story = response.text
 
-            # Simpan file ke /tmp/
+            # Buat dokumen Word dan simpan ke folder di /tmp/
             doc = Document()
             doc.add_heading(chapter_title if chapter_title else chapter_input, level=1)
-            doc.add_paragraph(generated_story)
-
-            doc_filename = f"bab{new_order}.doc" if new_order else "prolog.doc"
-            doc_filepath = os.path.join(TEMP_DIR, doc_filename)
+            add_markdown_to_doc(doc, generated_story)
+            doc_filename = "prolog.doc" if chapter_input.lower() == "prolog" else f"bab{new_order}.doc"
+            doc_filepath = os.path.join(folder_name, doc_filename)
             doc.save(doc_filepath)
 
-            # Simpan ke database
+            # Simpan data ke database SQLite
             conn = sqlite3.connect(DATABASE)
             c = conn.cursor()
             c.execute("""
@@ -154,7 +230,6 @@ def generate_novel_endpoint():
             })
         else:
             return jsonify({"status": "error", "message": "Gagal mengambil cerita dari AI"}), 500
-
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
